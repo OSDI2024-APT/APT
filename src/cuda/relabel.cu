@@ -1,9 +1,9 @@
+#include "./apt_kernel.h"
 #include "./atomic.h"
 #include "./cuda_common.h"
-#include "./npc_kernel.h"
 #include "./utils.h"
 
-namespace npc {
+namespace apt {
 template <typename IdType>
 struct RelabelHashmap {
   __device__ inline RelabelHashmap(IdType* Kptr, IdType* Vptr, size_t numel)
@@ -183,4 +183,4 @@ std::pair<torch::Tensor, torch::Tensor> TensorRelabelCSC(
 
   return {unique_tensor, reindex_tensor};
 }
-}  // namespace npc
+}  // namespace apt

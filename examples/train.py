@@ -1,504 +1,186 @@
-import csv
-import os
-import dgl
-import npc
-import torch
-import time
-from gat_model import *
-from sage_model import *
-from gcn_model import *
-import torch.multiprocessing as mp
-from torch.nn.parallel import DistributedDataParallel as DDP
-import torch.nn.functional as F
-import torch.distributed as dist
-import utils
-import torchmetrics.functional as MF
-import statistics
-import atexit
-
-# torch.profiler
-import torch.profiler as profiler
-from torch.profiler import record_function, tensorboard_trace_handler
-
-TEST_EPOCHS = 1
-TEST_BATCHES = 15
+import apt, dgl, torch
 
 
-def run(rank, local_rank, world_size, args, shared_tensor_list):
-    print(f"[Note] Starting run on Rank#{rank}, local:{local_rank} of W{world_size}\t debug:{args.debug}")
+def setup(rank, local_rank, world_size, args, backend=None):
+    master_port = args.master_port
+    master_addr = args.master_addr
+    init_method = f"tcp://{master_addr}:{master_port}"
+    torch.cuda.set_device(local_rank)
+    print(f"[Note]dist setup: rank:{rank}\t world_size:{world_size}\t init_method:{init_method} \t backend:{backend}")
+    torch.distributed.init_process_group(backend=backend, init_method=init_method, rank=rank, world_size=world_size)
+    print("[Note]Done dist init")
 
-    device = torch.device(f"cuda:{local_rank}")
-    args.rank = rank
-    args.local_rank = local_rank
+
+def cleanup():
+    torch.distributed.destroy_process_group()
+
+
+class InjectedDGLModel(torch.nn.Module):
+    def __init__(self, in_size, hid_size, out_size):
+        super().__init__()
+        self.layers = torch.nn.ModuleList()
+        # Three-layer GraphSAGE-mean
+        self.layers.append(dgl.nn.SAGEConv(in_size, hid_size, "mean"))
+        self.layers.append(dgl.nn.SAGEConv(hid_size, hid_size, "mean"))
+        self.layers.append(dgl.nn.SAGEConv(hid_size, out_size, "mean"))
+        self.dropout = torch.nn.Dropout(0.0)
+        self.in_size = in_size
+        self.hid_size = hid_size
+        self.out_size = out_size
+
+    def forward(self, sample_and_features):
+        (samples, features, *rest) = sample_and_features
+        for i, sample in enumerate(samples):
+            features = apt.layer_barrier(i, features, rest)
+            # print(f"[Note] layer:{i} features:{features.shape}")
+            features = self.layers[i](sample, features)
+
+        return features
+
+
+def parallel_train(rank, args, graph, shared_tensor_list):
+    # init
+    device = torch.device("cuda:" + str(rank))
+
     args.device = device
-    backend = "NCCL"
-    utils.setup(
-        rank=rank,
-        local_rank=local_rank,
-        world_size=world_size,
-        args=args,
-        backend=backend,
-    )
+    args.rank = rank
+    world_size = args.world_size
+    setup(rank, rank, world_size, args, backend="nccl")
+    apt.init(rank, rank, world_size, world_size, device=device)
 
-    node_size = world_size
-    if args.nproc_per_node != -1 and args.hybrid:
-        node_size = args.nproc_per_node
+    model = InjectedDGLModel(args.input_dim, args.num_hidden, args.num_classes).to(device)
 
-    # get rank from dist
+    val_idx = shared_tensor_list.pop()
+    train_idx = shared_tensor_list.pop()
 
-    npc.init(
-        rank=rank,
-        local_rank=local_rank,
-        world_size=world_size,
-        node_size=node_size,
-        num_nccl_comms=1,
-        device=device,
-        init_mp=True,
-    )
+    # num_val_idx_per_rank = val_idx.numel() // world_size
+    # val_nodes = val_idx[rank * num_val_idx_per_rank : (rank + 1) * num_val_idx_per_rank].to(device)
+    num_train_nids_per_rank = train_idx.numel() // world_size
+    train_nodes = train_idx[rank * num_train_nids_per_rank : (rank + 1) * num_train_nids_per_rank].to(device)
 
-    for ts in shared_tensor_list:
-        utils.pin_tensor(ts)
-
-    partition_data = npc.load_partition(args=args, rank=rank, device=device, shared_tensor_list=shared_tensor_list)
-    print(f"[Note]Done load parititon data, {utils.get_total_mem_usage_in_gb()}\n {utils.get_cuda_mem_usage_in_gb()}")
-
-    train_nid = partition_data.train_nid
-    min_vids = partition_data.min_vids
-    labels = partition_data.labels
-    cache_mask = partition_data.cache_mask
-
-    num_cached_feat_nodes = partition_data.num_cached_feat_nodes
-    num_cached_feat_elements = partition_data.num_cached_feat_elements
-    num_cached_graph_nodes = partition_data.num_cached_graph_nodes
-    num_cached_graph_elements = partition_data.num_cached_graph_elements
-
-    # decide shuffle_with_dst
-    args.shuffle_with_dst = args.model != "GCN" and args.nproc_per_node != -1
-
-    print(f"[Note]shuffle_with_dst:{args.shuffle_with_dst}")
-
-    # define define sampler dataloader
-    if args.debug:
-        num_nodes = min_vids[-1]
-        debug_min_vids = torch.empty(num_nodes, dtype=torch.long, device=device)
-        for i in range(len(min_vids) - 1):
-            debug_min_vids[min_vids[i] : min_vids[i + 1]] = i
-        index = shared_tensor_list[-4].detach().cpu()
-        indices = shared_tensor_list[-3].detach().cpu()
-        debug_graph = dgl.graph(("csc", (index, indices, [])))
-        print(f"[Note]debug_graph:{debug_graph}")
-        debug_global_features = shared_tensor_list[-2]
-        val_idx = shared_tensor_list[-1]
-        # manually rebalance val_idx
-        num_total_val = val_idx.numel()
-        num_val_per_rank = int(num_total_val // args.world_size)
-        rank_val_idx = val_idx[rank * num_val_per_rank : (rank + 1) * num_val_per_rank]
-        acc_file_path = f"./logs/accuracy/{args.model}_{args.system}_{args.dataset}_{world_size}.txt"
-        if rank == 0:
-            acc_file = open(acc_file_path, "w")
-
-    dataset_name = args.configs_path.split("/")[-2]
-    write_tag = f"{dataset_name}_{args.tag}"
-    print(f"[Note]write_tag:{write_tag}")
-    epoch_info_record_path = f"./logs/epoch_time2/{write_tag}_{args.fan_out}.txt"
-    if rank == 0:
-        epoch_info_file = open(epoch_info_record_path, "w")
-
-    if args.system == "NP":
-        sampler = npc.MixedNeighborSampler(
-            rank=rank,
-            fanouts=args.fan_out,
-            debug_info=(debug_graph, debug_min_vids, num_nodes) if args.debug else None,
-        )
-
-    else:
-        sampler = npc.MixedPSNeighborSampler(
-            rank=rank,
-            world_size=world_size,
-            fanouts=args.fan_out,
-            system=args.system,
-            model=args.model,
-            num_total_nodes=min_vids[-1],
-            shuffle_with_dst=args.shuffle_with_dst,
-            debug_info=(debug_graph, debug_min_vids, num_nodes) if args.debug else None,
-        )
-
-    fake_graph = dgl.rand_graph(1, 1)
     dataloader = dgl.dataloading.DataLoader(
-        graph=fake_graph,
-        indices=train_nid,
-        graph_sampler=sampler,
-        device=device,
-        use_uva=True,
-        batch_size=args.batch_size,
+        graph,
+        train_nodes,
+        dgl.dataloading.NeighborSampler([10, 10, 10], replace=True),
+        batch_size=1024,
         shuffle=True,
-        drop_last=True,
+        drop_last=False,
+        num_workers=0,
+        use_uva=True,
     )
-    print(f"[Note]Done define dataloader , {utils.get_total_mem_usage_in_gb()}\n {utils.get_cuda_mem_usage_in_gb()}")
-    if args.debug:
-        val_dataloader = dgl.dataloading.DataLoader(
-            graph=fake_graph,
-            indices=rank_val_idx,
-            graph_sampler=sampler,
-            device=device,
-            use_uva=True,
-            batch_size=args.batch_size,
-            shuffle=True,
-            drop_last=True,
-        )
-    num_batches_per_epoch = len(dataloader)
+    planner = apt.build_planner(args, args.hardware_info, shared_tensor_list)
+    adapted_model = planner.plan(dataloader, model)
+    optimizer = torch.optim.Adam(adapted_model.parameters(), lr=0.001, weight_decay=0.0005)
 
-    dist.barrier()
-    print(
-        f"[Note]Rank#{rank} Done define sampler & dataloader, #batches:{num_batches_per_epoch}\n {utils.get_total_mem_usage_in_gb()}\n {utils.get_cuda_mem_usage_in_gb()}"
-    )
+    for epoch in range(args.num_epochs):
+        print(f"[Note]train epoch:{epoch}")
+        adapted_model.train()
+        for samples in dataloader:
+            samples = planner.reorganize(samples)
 
-    # define model
-    if args.model == "SAGE":
-        if args.system == "DP":
-            training_model = DGLSAGE(
-                args=args,
-                activation=torch.relu,
-            ).to(device)
-        elif args.system == "NP":
-            training_model = NPCSAGE(
-                args=args,
-                activation=torch.relu,
-            ).to(device)
-        elif args.system == "SP":
-            training_model = SPSAGE(
-                args=args,
-                activation=torch.relu,
-            ).to(device)
-        elif args.system == "MP":
-            training_model = MPSAGE(
-                args=args,
-                activation=torch.relu,
-            ).to(device)
-            fc_self = torch.empty(args.num_hidden, args.input_dim, device=device)
-            fc_neigh = torch.empty(args.num_hidden, args.input_dim, device=device)
-            gain = nn.init.calculate_gain("relu")
-            nn.init.xavier_uniform_(fc_self, gain=gain)
-            nn.init.xavier_uniform_(fc_neigh, gain=gain)
-            dist.broadcast(fc_self, 0)
-            dist.broadcast(fc_neigh, 0)
-            training_model.mp_layers.fc_self.weight.data = (
-                fc_self[:, args.cumsum_feat_dim[rank] : args.cumsum_feat_dim[rank + 1]].clone().detach().to(device)
-            )
-            training_model.mp_layers.fc_neigh.weight.data = (
-                fc_neigh[:, args.cumsum_feat_dim[rank] : args.cumsum_feat_dim[rank + 1]].clone().detach().to(device)
-            )
-        else:
-            raise ValueError(f"Invalid system:{args.system}")
-    elif args.model == "GAT":
-        heads = [args.num_heads] * len(args.fan_out)
-        if args.system == "DP":
-            training_model = DGLGAT(
-                args=args,
-                heads=heads,
-                activation=F.elu,
-            ).to(device)
-        elif args.system == "NP":
-            training_model = NPCGAT(
-                args=args,
-                heads=heads,
-                activation=F.elu,
-            ).to(device)
-        elif args.system == "SP":
-            training_model = SPGAT(
-                args=args,
-                heads=heads,
-                activation=F.elu,
-            ).to(device)
-        elif args.system == "MP":
-            training_model = MPGAT(
-                args=args,
-                heads=heads,
-                activation=F.relu,
-            ).to(device)
-            fc = torch.empty(args.num_hidden * heads[0], args.input_dim, device=device)
-            gain = nn.init.calculate_gain("relu")
-            nn.init.xavier_uniform_(fc, gain=gain)
-            dist.broadcast(fc, 0)
-            training_model.fc.weight.data = fc[:, args.cumsum_feat_dim[rank] : args.cumsum_feat_dim[rank + 1]].clone().detach().to(device)
-        else:
-            raise ValueError(f"Invalid system:{args.system}")
-    elif args.model == "GCN":
-        if args.system == "DP":
-            training_model = DGLGCN(
-                args=args,
-                activation=torch.relu,
-            ).to(device)
-        elif args.system == "NP":
-            training_model = NPCGCN(
-                args=args,
-                activation=torch.relu,
-            ).to(device)
-        elif args.system == "SP":
-            training_model = SPGCN(
-                args=args,
-                activation=torch.relu,
-            ).to(device)
-        elif args.system == "MP":
-            training_model = MPGCN(
-                args=args,
-                activation=torch.relu,
-            ).to(device)
-            weight = torch.empty(args.input_dim, args.num_hidden, device=device)
-            nn.init.xavier_uniform_(weight)
-            dist.broadcast(weight, 0)
-            training_model.mp_layers.weight.data = weight[args.cumsum_feat_dim[rank] : args.cumsum_feat_dim[rank + 1]].clone().detach().to(device)
-        else:
-            raise ValueError(f"Invalid system:{args.system}")
+            y, sample_and_features = planner.fetch_features(samples)
+            y_hat = adapted_model(sample_and_features)
 
-    print(f"[Note]Rank#{rank} Done define training model\t {utils.get_total_mem_usage_in_gb()}\t {utils.get_cuda_mem_usage_in_gb()}")
+            loss = torch.nn.functional.cross_entropy(y_hat, y)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-    if args.world_size > 1:
-        if args.system == "MP":
-            # check training model
-            for name, param in training_model.named_parameters():
-                print(f"[Note]name:{name}\t param:{param.shape}\t dev:{param.device}")
 
-        else:
-            print(f"[Note] {args.system} training model: {type(training_model)}")
-            training_model = DDP(
-                training_model,
-                device_ids=[device],
-                output_device=device,
-            )
-    optimizer = torch.optim.Adam(training_model.parameters(), lr=1e-3, weight_decay=5e-4)
-    dist.barrier()
-    print(f"[Note]Rank#{rank} Ready to train\t {utils.get_total_mem_usage_in_gb()}\t {utils.get_cuda_mem_usage_in_gb()}")
-
-    training_mode = args.training_mode
-    if training_mode == "training":
-        total_time = [0, 0, 0]
-        num_epochs = args.num_epochs
-        warmup_epochs = args.warmup_epochs
-        num_record_epochs = num_epochs - warmup_epochs
-        # test
-
-        # args.num_epochs = TEST_EPOCHS
-        # args.num_batches_per_epoch = TEST_BATCHES
-
-        # import torch.cuda.nvtx as nvtx
-
-        """
-        prof = utils.build_tensorboard_profiler(f"./torch_profiler/latest_papers/{args.tag}_{args.system}")
-        args.num_epochs = 1
-        """
-
-        # evaluate
-        if args.debug:
-            acc = (
-                utils.evaluate(
-                    args,
-                    training_model,
-                    labels,
-                    args.num_classes,
-                    val_dataloader,
-                ).to(device)
-                / world_size
-            )
-            dist.reduce(acc, 0)
-            if rank == 0:
-                acc_str = "Epoch {:05d} | Loss {:.4f} | Accuracy {:.4f}\n".format(
-                    -1,
-                    0,
-                    acc.item(),
-                )
-                print(f"[Note]{acc_str}")
-                acc_file.write(acc_str)
-            print(f"[Note]Rank#{rank} After first evaluation\t {utils.get_total_mem_usage_in_gb()}\t {utils.get_cuda_mem_usage_in_gb()}")
-
-        record_flag = True
-        record_list = []
-        for epoch in range(args.num_epochs):
-            training_model.train()
-            # epoch_tic_start = utils.get_time()
-            t2 = utils.get_time()
-            # bt2, t2 = utils.get_time_straggler()
-            total_loss = 0
-            total_sampling_time = 0
-            total_loading_time = 0
-            total_training_time = 0
-            # nvtx.range_push("Sampling")
-            for step, sample_result in enumerate(dataloader):
-                t0 = utils.get_time()
-                # bt0, t0 = utils.get_time_straggler()
-                # nvtx.range_pop()
-                # nvtx.range_push("Loading")
-
-                batch_labels = labels[sample_result[1]]
-                loading_result = npc.load_subtensor(args, sample_result)
-                # check feature loading
-                if args.debug:
-                    feat_dim_slice = (
-                        slice(
-                            args.cumsum_feat_dim[rank],
-                            args.cumsum_feat_dim[rank + 1],
-                            1,
-                        )
-                        if args.system == "MP"
-                        else slice(None)
-                    )
-
-                    debug_loading_result = debug_global_features[sample_result[0].to("cpu"), feat_dim_slice]
-                    debug_loading_flag = torch.all(torch.eq(loading_result[1].detach().cpu(), debug_loading_result))
-                    assert debug_loading_flag
-
-                t1 = utils.get_time()
-                # bt1, t1 = utils.get_time_straggler()
-                # nvtx.range_pop()
-                # nvtx.range_push("Training")
-
-                batch_pred = training_model(loading_result)
-                loss = F.cross_entropy(batch_pred, batch_labels)
-                if args.debug:
-                    total_loss += loss.item()
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                ms_sampling_time = 1000.0 * (t0 - t2)
-                t2 = utils.get_time()
-                # bt2, t2 = utils.get_time_straggler()
-                # prof.step()
-                # nvtx.range_pop()
-                # nvtx.range_push("Sampling")
-                ms_loading_time = 1000.0 * (t1 - t0)
-                ms_training_time = 1000.0 * (t2 - t1)
-
-                total_sampling_time += ms_sampling_time
-                total_loading_time += ms_loading_time
-                total_training_time += ms_training_time
-                if epoch >= warmup_epochs:
-                    total_time[0] += ms_sampling_time
-                    total_time[1] += ms_loading_time
-                    total_time[2] += ms_training_time
-                    if record_flag:
-                        record_val = [
-                            ms_sampling_time,
-                            # t0 - bt0,
-                            ms_loading_time,
-                            # t1 - bt1,
-                            ms_training_time,
-                            # t2 - bt2,
-                        ]
-                        record_list.append(record_val)
-
-                t2 = utils.get_time()
-
-            # epoch_tic_end = utils.get_time()
-            if not args.debug and args.rank == 0:
-                epoch_time = total_sampling_time + total_loading_time + total_training_time
-                epoch_info = f"Rank: {rank} | Epoch: {epoch} | Sampling time: {total_sampling_time:3f}| Loading time: {total_loading_time:3f}| Training time: {total_training_time:3f}| Epoch time: {epoch_time:.3f}\n"
-                print(epoch_info)
-                epoch_info_file.write(epoch_info)
-
-            # evaluate
-            if args.debug:
-                acc = (
-                    utils.evaluate(
-                        args,
-                        training_model,
-                        labels,
-                        args.num_classes,
-                        val_dataloader,
-                    ).to(device)
-                    / world_size
-                )
-                dist.reduce(acc, 0)
-                if rank == 0:
-                    acc_str = "Epoch {:05d} | Loss {:.4f} | Accuracy {:.4f}\n".format(
-                        epoch,
-                        total_loss / (step + 1),
-                        acc.item(),
-                    )
-                    print(f"[Note]{acc_str}")
-                    acc_file.write(acc_str)
-
-        if rank == 0:
-            epoch_info_file.close()
-            print(f"[Note]Epoch time file save to {epoch_info_record_path}")
-        if args.debug and rank == 0:
-            acc_file.close()
-            print(f"[Note]Acc file save to {acc_file_path}")
-        if not args.debug and rank == 0 and args.num_epochs > 1:
-            avg_time_epoch_sampling = round(total_time[0] / num_record_epochs, 4)
-            avg_time_epoch_loading = round(total_time[1] / num_record_epochs, 4)
-            avg_time_epoch_training = round(total_time[2] / num_record_epochs, 4)
-
-            # write record to csv file
-            if record_flag:
-                record_path = f"./logs/record/{args.tag}.csv"
-                with open(record_path, "a") as f:
-                    writer = csv.writer(f, lineterminator="\n")
-                    writer.writerows(record_list)
-
-            # cross-machine feature loading variance check
-            if record_flag:
-                check_flag = True
-                fail_idx = []
-                for cid in range(3):
-                    vals = [e[cid] for e in record_list]
-                    variance = max(vals) / min(vals)
-                    print(f"[Note]Checking Index{cid} variance:{variance}")
-                    if variance > 2:
-                        check_flag = False
-                        fail_idx.append(cid)
-
-                if not check_flag:
-                    args.tag = f"variance{fail_idx}_{args.tag}"
-
-            with open(args.logs_dir, "a") as f:
-                writer = csv.writer(f, lineterminator="\n")
-                # Tag, System, Dataset, Model, Machines, local batch_size, fanout, cache_mode, cache_memory, cache_value, feat cache node, feat cache element, graph cache node, graph cache element, num_epochs, num batches per epoch, Sampling time, Loading time, Training time,
-                cache_memory = f"{round(args.cache_memory / (1024*1024*1024), 1)}GB"
-                cache_value = args.greedy_feat_ratio if args.cache_mode == "greedy" else args.tag.split("_")[-1]
-                avg_epoch_time = round(avg_time_epoch_sampling + avg_time_epoch_loading + avg_time_epoch_training, 2)
-
-                log_info = [
-                    write_tag,
-                    world_size,
-                    args.model,
-                    args.batch_size,
-                    args.input_dim,
-                    args.num_hidden,
-                    args.num_heads,
-                    args.fan_out,
-                    args.cache_mode,
-                    cache_memory,
-                    cache_value,
-                    num_cached_feat_nodes,
-                    num_cached_feat_elements,
-                    # num_cached_graph_nodes,
-                    # num_cached_graph_elements,
-                    num_record_epochs,
-                    num_batches_per_epoch,
-                    round(avg_time_epoch_sampling, 2),
-                    round(avg_time_epoch_loading, 2),
-                    round(avg_time_epoch_training, 2),
-                    avg_epoch_time,
-                ]
-                writer.writerow(log_info)
-    dist.barrier()
-    utils.cleanup()
+def show_args(args):
+    for k, v in args.__dict__.items():
+        print(f"[Note]args.{k} = {v}")
 
 
 if __name__ == "__main__":
-    args, shared_tensor_list = utils.pre_spawn()
-    world_size = args.world_size
-    nproc = world_size
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train a GNN with APT")
+
+    parser.add_argument("--master_addr", type=str, default="localhost", help="Master address")
+    parser.add_argument("--master_port", type=str, default="12345", help="Master port")
+    parser.add_argument("--num_hidden", type=int, default=16, help="Hidden layer size")
+    parser.add_argument("--num-epochs", type=int, default=10, help="Number of epochs")
+    parser.add_argument("--world_size", type=int, default=..., help="Number of workers")
+    parser.add_argument("--hardware-info", type=dict, default={}, help="Hardware information")
+    parser.add_argument("--cache_memory", type=float, default=0.5, help="cache memory in GB")
+    parser.add_argument("--model", type=str, default="SAGE", help="model name")
+    parser.add_argument("--shuffle_with_dst", type=bool, default=False, help="shuffle with dst")
+    parser.add_argument("--num_gpu_cache_nodes", type=int, default=0, help="num cached nodes")
+
+    parser.add_argument("--configs_path", default="./custom_dataset/ogbn-products/configs.json", type=str, help="the path to the graph configs.json")
+    # provide by graph configs
+    # parser.add_argument("--out-size", type=int, default=..., help="Output feature size")
+    # parser.add_argument("--in-size", type=int, default=..., help="Input feature size")
+    args = parser.parse_args()
+    # load args from configs
+    import json, os
+
+    if args.configs_path is not None and os.path.exists(args.configs_path):
+        configs = json.load(open(args.configs_path))
+        for key, value in configs.items():
+            print(f"[Note] Set args.{key} = {value}")
+            setattr(args, key, value)
+    else:
+        raise ValueError(f"Invalid configs path: {args.configs_path}")
+
+    mp_input_dim_list = [int(args.input_dim // args.world_size) for r in range(args.world_size)]
+    lef = args.input_dim % args.world_size
+    for r in range(lef):
+        mp_input_dim_list[r] += 1
+
+    args.mp_input_dim_list = mp_input_dim_list
+    from itertools import accumulate
+
+    args.cumsum_feat_dim = list(accumulate([0] + mp_input_dim_list))
+    # load graph
+    graph = dgl.load_graphs(args.graph_path)[0][0]
+    print(f"[Note] Done load graph: {graph}")
+    # extract graph node features
+    num_total_nodes = graph.number_of_nodes()
+    global_train_mask = graph.ndata["train_mask"].bool()
+    global_val_mask = graph.ndata["val_mask"].bool()
+    global_train_nodes = torch.masked_select(torch.arange(num_total_nodes), global_train_mask)
+    global_val_nodes = torch.masked_select(torch.arange(num_total_nodes), global_val_mask)
+    gloabl_labels = graph.ndata["label"].long().nan_to_num()
+    global_feats = graph.ndata["feat"]
+    global_feats_idx = torch.arange(num_total_nodes)
+    graph.ndata.clear()
+    graph.edata.clear()
+    graph = dgl.remove_self_loop(graph)
+    graph = dgl.add_self_loop(graph)
+    graph = graph.formats("csc")
+    indptr, indices, edges_ids = graph.adj_tensors("csc")
+    shared_tensor_list = [
+        global_feats_idx,
+        global_feats,
+        indptr,
+        indices,
+        gloabl_labels,
+        global_train_nodes,
+        global_val_nodes,
+    ]
+
+    for tensor in shared_tensor_list:
+        tensor.share_memory_()
+
+    # start multiprocess parallel train
+    nproc = args.world_size
+    ranks = list(range(nproc))
     processes = []
-    ranks = [i for i in range(nproc)]
-    local_ranks = [i for i in range(nproc)]
+
+    def kill_proc(p):
+        try:
+            p.terminate()
+        except Exception:
+            pass
+
+    import atexit
+
+    torch.multiprocessing.set_start_method("spawn", force=True)
     for i in range(nproc):
-        p = mp.Process(
-            target=run,
-            args=(ranks[i], local_ranks[i], world_size, args, shared_tensor_list),
-        )
-        atexit.register(utils.kill_proc, p)
+        p = torch.multiprocessing.Process(target=parallel_train, args=(ranks[i], args, graph, shared_tensor_list))
+        atexit.register(kill_proc, p)
         p.start()
         processes.append(p)
 

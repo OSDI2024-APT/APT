@@ -1,5 +1,5 @@
-#ifndef NPC_FEAT_SHUFFLE_H_
-#define NPC_FEAT_SHUFFLE_H_
+#ifndef APT_FEAT_SHUFFLE_H_
+#define APT_FEAT_SHUFFLE_H_
 
 #include <torch/script.h>
 
@@ -7,9 +7,9 @@
 
 #include "./utils.h"
 
-namespace npc {
+namespace apt {
 
-// NPC feature shuffle
+// APT feature shuffle
 torch::Tensor FeatShuffle(
     torch::Tensor inputs, torch::Tensor send_offset, torch::Tensor recv_offset,
     torch::Tensor permutation, IdType feat_dim, IdType fwd_flag);
@@ -27,6 +27,6 @@ torch::Tensor MPFeatShuffleBwd(
     torch::Tensor inputs, torch::Tensor send_size, torch::Tensor recv_size,
     IdType feat_dim);
 
-}  // namespace npc
+}  // namespace apt
 
 #endif

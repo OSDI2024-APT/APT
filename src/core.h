@@ -1,5 +1,5 @@
-#ifndef NPC_CORE_H_
-#define NPC_CORE_H_
+#ifndef APT_CORE_H_
+#define APT_CORE_H_
 
 #include <torch/script.h>
 
@@ -7,7 +7,7 @@
 
 #include "utils.h"
 
-namespace npc {
+namespace apt {
 
 torch::Tensor NCCLGetUniqueId();
 
@@ -19,6 +19,6 @@ void RegisterMinVids(torch::Tensor shuffle_min_vids, IdType shuffle_id_offset);
 
 void RegisterMultiMachinesScheme(
     torch::Tensor remote_worker_map, torch::Tensor remote_worker_id);
-}  // namespace npc
+}  // namespace apt
 
 #endif

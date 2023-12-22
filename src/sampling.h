@@ -1,5 +1,5 @@
-#ifndef NPC_SAMPLING_H_
-#define NPC_SAMPLING_H_
+#ifndef APT_SAMPLING_H_
+#define APT_SAMPLING_H_
 
 #include <torch/script.h>
 #include <torch/serialize.h>
@@ -9,7 +9,7 @@
 #include "./utils.h"
 #include "glog/logging.h"
 
-namespace npc {
+namespace apt {
 
 std::vector<torch::Tensor> LocalSamplingNeibhorsOneLayer(
     torch::Tensor seeds, IdType fanout);
@@ -45,6 +45,6 @@ std::vector<torch::Tensor> SPSampleShuffleSrc(torch::Tensor unique_src);
 std::vector<torch::Tensor> MPSampleShuffle(
     torch::Tensor seeds, torch::Tensor unique_frontier, torch::Tensor coo_row);
 
-}  // namespace npc
+}  // namespace apt
 
 #endif

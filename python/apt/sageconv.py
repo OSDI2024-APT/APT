@@ -42,7 +42,9 @@ class SPSAGEConv(nn.Module):
         nn.init.xavier_uniform_(self.fc_self.weight, gain=gain)
         nn.init.xavier_uniform_(self.fc_neigh.weight, gain=gain)
 
-    def forward(self, blocks, feat, fsi):
+    # def forward(self, blocks, feat, fsi):
+    def forward(self, blocks, loading_result):
+        feat, fsi = loading_result
         # block2 fwd (VirtualNode, ori_neighbor)
         graph = blocks[0]
 
@@ -62,7 +64,6 @@ class SPSAGEConv(nn.Module):
         with graph.local_scope():
             # Message Passing
             graph.srcdata["h"] = self.fc_neigh(feat_src)
-            # print(f"[Note]graph:{graph}, graph_dev:{graph.device}")
             graph.update_all(fn.copy_u("h", "m"), fn.mean("m", "neigh"))
             h_vir = graph.dstdata["neigh"]
 
@@ -73,6 +74,7 @@ class SPSAGEConv(nn.Module):
 
         # block1 fwd, (ori_node, VirtualNode)
         graph = blocks[1]
+
         with graph.local_scope():
             if self.shuffle_with_dst:
                 graph.srcdata["h"] = shuffle_feat[num_send_dst:]
@@ -102,7 +104,7 @@ class Aggregate(torch.autograd.Function):
     def forward(ctx, graph: Tuple[torch.Tensor], X: torch.Tensor, X_offset: torch.Tensor, out_offset: torch.Tensor) -> torch.Tensor:
         ctx.graph = graph
         all_coo_row, all_coo_col, coo_offset = graph
-        out = torch.ops.npc.spmm_copy_u_sum(all_coo_row, all_coo_col, X, coo_offset, X_offset, out_offset)
+        out = torch.ops.apt.spmm_copy_u_sum(all_coo_row, all_coo_col, X, coo_offset, X_offset, out_offset)
         ctx.save_for_backward(X_offset, out_offset)
         return out
 
@@ -110,7 +112,7 @@ class Aggregate(torch.autograd.Function):
     def backward(ctx, dZ: torch.Tensor) -> torch.Tensor:
         all_coo_row, all_coo_col, coo_offset = ctx.graph
         X_offset, out_offset = ctx.saved_tensors
-        dX = torch.ops.npc.spmm_copy_u_sum(all_coo_col, all_coo_row, dZ, coo_offset, out_offset, X_offset)
+        dX = torch.ops.apt.spmm_copy_u_sum(all_coo_col, all_coo_row, dZ, coo_offset, out_offset, X_offset)
         return None, dX, None, None
 
 

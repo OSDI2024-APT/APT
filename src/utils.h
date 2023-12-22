@@ -1,5 +1,5 @@
-#ifndef NPC_UTILS_H_
-#define NPC_UTILS_H_
+#ifndef APT_UTILS_H_
+#define APT_UTILS_H_
 
 #include <cuda_runtime.h>
 #include <glog/logging.h>
@@ -46,7 +46,7 @@ enum SystemType {
     }                                                            \
   } while (0)
 
-namespace npc {
+namespace apt {
 
 inline std::string TensorMaxMinToString(torch::Tensor t) {
   auto maxx = torch::max(t).item<IdType>();
@@ -110,33 +110,33 @@ std::string DevArrToString(const T *ptr, int num_elements) {
 }
 
 template <typename T>
-void NPCCudaMalloc(T **ptr, int size) {
+void APTCudaMalloc(T **ptr, int size) {
   CUDACHECK(cudaMalloc(ptr, sizeof(T) * size));
   CUDACHECK(cudaMemset(*ptr, 0, sizeof(T) * size));
 }
 
 template <typename T>
-void NPCCudaMallocAndCopy(T **ret, const T *src, int size) {
-  NPCCudaMalloc(ret, size);
+void APTCudaMallocAndCopy(T **ret, const T *src, int size) {
+  APTCudaMalloc(ret, size);
   CUDACHECK(cudaMemcpy(*ret, src, sizeof(T) * size, cudaMemcpyHostToDevice));
 }
 
 template <typename T>
-void NPCCudaMallocAndCopy(T **ret, const std::vector<T> &src) {
-  NPCCudaMallocAndCopy(ret, src.data(), src.size());
+void APTCudaMallocAndCopy(T **ret, const std::vector<T> &src) {
+  APTCudaMallocAndCopy(ret, src.data(), src.size());
 }
 
 template <typename T>
-static inline void NPCCudaHostAlloc(T **ptr, size_t size) {
+static inline void APTCudaHostAlloc(T **ptr, size_t size) {
   CUDACHECK(cudaHostAlloc(ptr, sizeof(T) * size, cudaHostAllocMapped));
   memset(*ptr, 0, size);
 }
 
 template <typename T>
-void NPCHostMallocAndCopy(T **ret, const std::vector<T> &src) {
-  NPCCudaHostAlloc(ret, src.size());
+void APTHostMallocAndCopy(T **ret, const std::vector<T> &src) {
+  APTCudaHostAlloc(ret, src.size());
   memcpy(*ret, src.data(), sizeof(T) * src.size());
 }
 
-}  // namespace npc
+}  // namespace apt
 #endif

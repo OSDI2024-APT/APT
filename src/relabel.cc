@@ -3,9 +3,9 @@
 #include <ATen/Functions.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include "./cuda/npc_kernel.h"
+#include "./cuda/apt_kernel.h"
 
-namespace npc {
+namespace apt {
 std::vector<torch::Tensor> RelabelCSC(
     torch::Tensor seeds, torch::Tensor neighbors) {
   torch::Tensor all_unique, relabeled_indices;
@@ -13,4 +13,4 @@ std::vector<torch::Tensor> RelabelCSC(
 
   return {all_unique, relabeled_indices};
 }
-}  // namespace npc
+}  // namespace apt

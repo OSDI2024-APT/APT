@@ -3,12 +3,12 @@
 #include <ATen/Functions.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include "./cuda/npc_kernel.h"
+#include "./cuda/apt_kernel.h"
 #include "./ops/collective.h"
 #include "./state.h"
 #include "glog/logging.h"
 
-namespace npc {
+namespace apt {
 
 std::vector<torch::Tensor> LocalSamplingNeibhorsOneLayer(
     torch::Tensor seeds, IdType fanout) {
@@ -17,7 +17,7 @@ std::vector<torch::Tensor> LocalSamplingNeibhorsOneLayer(
 }
 
 torch::Tensor SrcToVir(IdType fanout, IdType num_dst, torch::Tensor src) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   auto world_size = state->world_size;
   int rank = state->rank;
   int node_size = state->node_size;
@@ -34,7 +34,7 @@ torch::Tensor SrcToVir(IdType fanout, IdType num_dst, torch::Tensor src) {
 }
 
 torch::Tensor SrcDsttoVir(IdType fanout, torch::Tensor dst, torch::Tensor src) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   auto world_size = state->world_size;
   int rank = state->rank;
   int node_size = state->node_size;
@@ -45,7 +45,8 @@ torch::Tensor SrcDsttoVir(IdType fanout, torch::Tensor dst, torch::Tensor src) {
   int node_end = node_beg + node_size;
 
   auto map_allnodes = MapSrcDsttoVir(
-      world_size, fanout, dst, src, shuffle_id_offset, shuffle_min_vids, rank, node_beg, node_end);
+      world_size, fanout, dst, src, shuffle_id_offset, shuffle_min_vids, rank,
+      node_beg, node_end);
   return map_allnodes;
 }
 
@@ -72,7 +73,7 @@ std::vector<torch::Tensor> SPSampleAndShuffle(
     IdType num_seeds, torch::Tensor send_frontier,
     torch::Tensor sorted_allnodes, torch::Tensor unique_frontier,
     IdType shuffle_with_dst) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   auto rank = state->rank;
   auto world_size = state->world_size;
   auto num_total_nodes = state->graph_storage.num_total_nodes;
@@ -158,7 +159,7 @@ std::vector<torch::Tensor> SPSampleShuffleSrc(torch::Tensor unique_src) {
 
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
 ShuffleSeeds(torch::Tensor seeds) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int rank = state->rank;
   int world_size = state->world_size;
   int node_size = state->node_size;
@@ -194,7 +195,7 @@ ShuffleSeeds(torch::Tensor seeds) {
 
 std::vector<torch::Tensor> MPSampleShuffle(
     torch::Tensor seeds, torch::Tensor unique_frontier, torch::Tensor coo_row) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   auto world_size = state->world_size;
   auto rank = state->rank;
   auto seeds_size = seeds.numel();
@@ -238,4 +239,4 @@ std::vector<torch::Tensor> MPSampleShuffle(
           recv_seeds_size, recv_frontier_size, recv_coo_size};
 }
 
-}  // namespace npc
+}  // namespace apt

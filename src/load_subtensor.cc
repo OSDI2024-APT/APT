@@ -2,13 +2,13 @@
 
 #include <c10/cuda/CUDAStream.h>
 
-#include "./cuda/npc_kernel.h"
+#include "./cuda/apt_kernel.h"
 #include "./ops/collective.h"
 #include "./state.h"
 
-namespace npc {
+namespace apt {
 torch::Tensor CPULoadSubtensor(torch::Tensor node_id) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   auto cpu_feat_pos_map = state->feat_storage.cpu_feat_pos_map;
   auto uva_feats = state->feat_storage.uva_feats;
   auto node_id_pos = ENCODE_ID(cpu_feat_pos_map.index_select(0, node_id));
@@ -18,7 +18,7 @@ torch::Tensor CPULoadSubtensor(torch::Tensor node_id) {
 
 torch::Tensor LoadSubtensor(torch::Tensor node_id) {
   int num_nodes = node_id.numel();
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int local_rank = state->local_rank;
 
   auto feat_dim = state->feat_storage.feat_dim;
@@ -40,7 +40,7 @@ torch::Tensor LoadSubtensor(torch::Tensor node_id) {
 }
 torch::Tensor CrossMachineLoadSubtensor(torch::Tensor node_id) {
   torch::Tensor bucket_size, sorted_idx, permutation;
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int local_rank = state->local_rank;
   int rank = state->rank;
   auto num_remote_workers = state->num_remote_workers;
@@ -85,4 +85,4 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> ClusterReqs(
   return MultiMachinesClusterAndPermute(node_id);
 }
 
-}  // namespace npc
+}  // namespace apt

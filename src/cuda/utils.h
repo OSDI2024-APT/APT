@@ -1,5 +1,5 @@
-#ifndef NPC_CUDA_UTILS_H_
-#define NPC_CUDA_UTILS_H_
+#ifndef APT_CUDA_UTILS_H_
+#define APT_CUDA_UTILS_H_
 
 #include <c10/cuda/CUDACachingAllocator.h>
 
@@ -8,7 +8,7 @@
 #include "./cuda_common.h"
 #include "glog/logging.h"
 
-namespace npc {
+namespace apt {
 
 #define CUDA_MAX_NUM_BLOCKS_X 0x7FFFFFFF
 #define CUDA_MAX_NUM_BLOCKS_Y 0xFFFF
@@ -202,6 +202,6 @@ inline int FindNumBlocks(int nblks, int max_nblks = -1) {
   return max_nblks;
 }
 
-}  // namespace npc
+}  // namespace apt
 
 #endif

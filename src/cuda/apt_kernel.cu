@@ -5,9 +5,9 @@
 
 #include "../state.h"
 #include "../utils.h"
-#include "./npc_kernel.h"
+#include "./apt_kernel.h"
 
-namespace npc {
+namespace apt {
 
 // map src and dst to vir_nodes
 //[is_src, device_id, dst_idx]
@@ -52,7 +52,8 @@ __global__ void _MapSrcAndDst(
 
 torch::Tensor MapSrcDsttoVir(
     IdType world_size, IdType fanout, torch::Tensor dst, torch::Tensor src,
-    IdType shuffle_id_offset, torch::Tensor shuffle_min_vids, int rank, int node_beg, int node_end) {
+    IdType shuffle_id_offset, torch::Tensor shuffle_min_vids, int rank,
+    int node_beg, int node_end) {
   auto stream = at::cuda::getCurrentCUDAStream();
   auto num_dst = dst.numel();
   auto num_src = src.numel();
@@ -63,7 +64,8 @@ torch::Tensor MapSrcDsttoVir(
   _MapSrcAndDst<<<grid, block, 0, stream>>>(
       world_size, fanout, num_dst, num_src, num_vir, shuffle_id_offset,
       shuffle_min_vids.data_ptr<IdType>(), dst.data_ptr<IdType>(),
-      src.data_ptr<IdType>(), vir_nodes.data_ptr<IdType>(), rank, node_beg, node_end);
+      src.data_ptr<IdType>(), vir_nodes.data_ptr<IdType>(), rank, node_beg,
+      node_end);
   CUDACHECK(cudaStreamSynchronize(stream));
   return vir_nodes;
 }
@@ -102,7 +104,8 @@ __global__ void _MapSrctoVir(
 
 torch::Tensor MapSrctoVir(
     IdType world_size, IdType fanout, IdType num_dst, torch::Tensor src,
-    IdType shuffle_id_offset, torch::Tensor shuffle_min_vids, int rank, int node_beg, int node_end) {
+    IdType shuffle_id_offset, torch::Tensor shuffle_min_vids, int rank,
+    int node_beg, int node_end) {
   auto stream = at::cuda::getCurrentCUDAStream();
   auto num_src = src.numel();
   auto vir_nodes = torch::empty({num_src}, src.options());
@@ -286,7 +289,7 @@ __global__ void _CSRRowWiseSampleReplaceKernel(
 }
 
 torch::Tensor LocalSampleNeighbors(torch::Tensor frontier, int fanout) {
-  auto *state = NPCState::Global();
+  auto *state = APTState::Global();
   auto num_frontier = frontier.numel();
   auto stream = at::cuda::getCurrentCUDAStream();
   const uint64_t random_seed = 7777777;
@@ -471,7 +474,7 @@ ClusterAndPermute(
 
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
 MultiMachinesClusterAndPermute(torch::Tensor seeds) {
-  auto *state = NPCState::Global();
+  auto *state = APTState::Global();
   auto world_size = state->world_size;
   auto num_remote_workers = state->num_remote_workers;
   auto shuffle_min_vids = state->shuffle_min_vids;
@@ -507,4 +510,4 @@ MultiMachinesClusterAndPermute(torch::Tensor seeds) {
   return {bucket_size, sorted_idx, permutation};
 }
 
-}  // namespace npc
+}  // namespace apt

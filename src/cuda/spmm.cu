@@ -1,9 +1,9 @@
+#include "./apt_kernel.h"
 #include "./atomic.h"
 #include "./cuda_common.h"
-#include "./npc_kernel.h"
 #include "./utils.h"
 
-namespace npc {
+namespace apt {
 template <typename Idx, typename DType>
 __global__ void CopyUSumKernel(
     const DType* __restrict__ infeat, DType* __restrict__ outfeat,
@@ -146,4 +146,4 @@ void UMulESumCUDA(
       coo_offset.data_ptr<int64_t>(), input_offset.data_ptr<int64_t>(),
       output_offset.data_ptr<int64_t>(), len, coo_offset.numel());
 }
-}  // namespace npc
+}  // namespace apt

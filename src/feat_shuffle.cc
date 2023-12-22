@@ -1,15 +1,15 @@
 #include "./feat_shuffle.h"
 
-#include "./cuda/npc_kernel.h"
+#include "./cuda/apt_kernel.h"
 #include "./ops/collective.h"
 #include "./state.h"
 
-namespace npc {
+namespace apt {
 
 torch::Tensor FeatShuffle(
     torch::Tensor inputs, torch::Tensor send_offset, torch::Tensor recv_offset,
     torch::Tensor permutation, IdType feat_dim, IdType fwd_flag) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   auto flatten_inputs = fwd_flag ? inputs.flatten()
                                  : torch::index_select_backward(
                                        inputs, inputs.sizes(), 0, permutation)
@@ -32,7 +32,7 @@ torch::Tensor FeatShuffle(
 torch::Tensor SPFeatShuffle(
     torch::Tensor inputs, torch::Tensor send_sizes, torch::Tensor recv_sizes,
     IdType total_recv_size, IdType expand, IdType shuffle_with_dst) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   auto world_size = state->world_size;
   auto flatten_inputs = inputs.flatten();
   auto flatten_outputs =
@@ -54,7 +54,7 @@ torch::Tensor SPFeatShuffle(
 torch::Tensor MPFeatShuffleFwd(
     torch::Tensor inputs, torch::Tensor send_size, torch::Tensor recv_size,
     IdType feat_dim) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   auto flatten_inputs = inputs.flatten();
   auto flatten_outputs =
       torch::empty(recv_size.item<IdType>() * feat_dim, inputs.options());
@@ -66,7 +66,7 @@ torch::Tensor MPFeatShuffleFwd(
 torch::Tensor MPFeatShuffleBwd(
     torch::Tensor inputs, torch::Tensor send_size, torch::Tensor recv_size,
     IdType feat_dim) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   auto world_size = state->world_size;
   auto total_recv_size = torch::sum(recv_size).item<IdType>();
   auto flatten_inputs = inputs.flatten();
@@ -78,4 +78,4 @@ torch::Tensor MPFeatShuffleBwd(
   return outputs;
 }
 
-}  // namespace npc
+}  // namespace apt

@@ -1,9 +1,9 @@
+#include "./apt_kernel.h"
 #include "./atomic.h"
 #include "./cuda_common.h"
-#include "./npc_kernel.h"
 #include "./utils.h"
 
-namespace npc {
+namespace apt {
 template <typename Idx, typename DType>
 __global__ void UAddVKernel(
     const DType* __restrict__ lhs, const DType* __restrict__ rhs,
@@ -101,4 +101,4 @@ void UMulVCUDA(
       coo_offset.data_ptr<int64_t>(), lhs_offset.data_ptr<int64_t>(),
       rhs_offset.data_ptr<int64_t>(), len, coo_offset.numel());
 }
-}  // namespace npc
+}  // namespace apt

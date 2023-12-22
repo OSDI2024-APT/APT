@@ -6,10 +6,10 @@
 
 #include "../utils.h"
 
-namespace npc {
+namespace apt {
 template <typename T, ncclDataType_t NCCL_DATA_TYPE>
 void _Allgather(T* input, T* output, IdType size, IdType comm_type) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   cudaStream_t stream = at::cuda::getCurrentCUDAStream();
   auto nccl_comm = state->nccl_comm_list[comm_type];
   NCCLCHECK(
@@ -17,7 +17,7 @@ void _Allgather(T* input, T* output, IdType size, IdType comm_type) {
 }
 
 torch::Tensor AllGather(torch::Tensor input, IdType comm_type) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int rank = state->rank;
   int world_size = state->world_size;
   auto input_size = input.numel();
@@ -39,7 +39,7 @@ template <typename T, ncclDataType_t NCCL_DATA_TYPE>
 void _SPAlltoAll(
     T* input, T* output, IdType* send_sizes, IdType* recv_sizes, IdType expand,
     IdType comm_type) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int world_size = state->world_size;
   auto stream = at::cuda::getCurrentCUDAStream();
   auto nccl_comm = state->nccl_comm_list[comm_type];
@@ -78,7 +78,7 @@ template <typename T, ncclDataType_t NCCL_DATA_TYPE>
 IdType _SPAlltoAllWithDst(
     T* input, T* output, IdType* send_sizes, IdType* recv_sizes, IdType expand,
     IdType comm_type) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int world_size = state->world_size;
   auto stream = at::cuda::getCurrentCUDAStream();
   auto nccl_comm = state->nccl_comm_list[comm_type];
@@ -132,7 +132,7 @@ template <typename T, ncclDataType_t NCCL_DATA_TYPE>
 void _SPFeatureAlltoAll(
     T* input, T* output, IdType* send_sizes, IdType* recv_sizes, IdType expand,
     IdType comm_type) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int world_size = state->world_size;
   auto stream = at::cuda::getCurrentCUDAStream();
   auto nccl_comm = state->nccl_comm_list[comm_type];
@@ -170,7 +170,7 @@ template <typename T, ncclDataType_t NCCL_DATA_TYPE>
 void _SPFeatureAlltoAllWithDst(
     T* input, T* output, IdType* send_sizes, IdType* recv_sizes, IdType expand,
     IdType comm_type) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int world_size = state->world_size;
   auto stream = at::cuda::getCurrentCUDAStream();
   auto nccl_comm = state->nccl_comm_list[comm_type];
@@ -224,7 +224,7 @@ template <typename T, ncclDataType_t NCCL_DATA_TYPE>
 void _AlltoAll(
     T* input, T* output, IdType* send_offset, IdType* recv_offset,
     IdType expand, IdType comm_type) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int world_size = state->world_size;
   auto stream = at::cuda::getCurrentCUDAStream();
   auto nccl_comm = state->nccl_comm_list[comm_type];
@@ -269,7 +269,7 @@ template <typename T, ncclDataType_t NCCL_DATA_TYPE>
 void _CrossMachineAlltoAll(
     T* input, T* output, IdType* send_size, IdType* recv_size, IdType expand,
     IdType comm_type) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int rank = state->rank;
   int world_size = state->world_size;
   cudaStream_t stream = at::cuda::getCurrentCUDAStream();
@@ -319,7 +319,7 @@ template <typename T, ncclDataType_t NCCL_DATA_TYPE>
 void _AllBroadcast(
     T* input, T* output, IdType send_size, IdType* recv_size, IdType expand,
     IdType comm_type) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int rank = state->rank;
   int world_size = state->world_size;
   cudaStream_t stream = at::cuda::getCurrentCUDAStream();
@@ -358,7 +358,7 @@ template <typename T, ncclDataType_t NCCL_DATA_TYPE>
 void _AllBroadcastV2(
     T* input, T* output, IdType send_size, IdType* recv_size, IdType expand,
     IdType comm_type) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int rank = state->rank;
   int world_size = state->world_size;
   cudaStream_t stream = at::cuda::getCurrentCUDAStream();
@@ -383,7 +383,7 @@ void _AllBroadcastV2(
 void AllBroadcastV2(
     torch::Tensor input, torch::Tensor output, torch::Tensor send_size,
     torch::Tensor recv_size, IdType expand, IdType comm_type) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int rank = state->rank;
   int world_size = state->world_size;
   auto repeat_input = input.repeat({world_size});
@@ -404,7 +404,7 @@ void AllBroadcastV2(
 template <typename T, ncclDataType_t NCCL_DATA_TYPE>
 void _AllReduce(
     T* input, T* output, IdType* send_size, IdType expand, IdType comm_type) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   int rank = state->rank;
   int world_size = state->world_size;
   cudaStream_t stream = at::cuda::getCurrentCUDAStream();
@@ -435,4 +435,4 @@ void AllReduce(
   }
 }
 
-}  // namespace npc
+}  // namespace apt

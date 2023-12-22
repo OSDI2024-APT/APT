@@ -3,9 +3,9 @@
 #include <ATen/Functions.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include "./cuda/npc_kernel.h"
+#include "./cuda/apt_kernel.h"
 
-namespace npc {
+namespace apt {
 torch::Tensor UAddV(
     torch::Tensor coo_row, torch::Tensor coo_col, torch::Tensor lhs,
     torch::Tensor rhs, torch::Tensor coo_offset, torch::Tensor lhs_offset,
@@ -29,4 +29,4 @@ torch::Tensor UMulV(
 
   return output;
 }
-}  // namespace npc
+}  // namespace apt

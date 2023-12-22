@@ -7,13 +7,13 @@
 #include "./utils.h"
 #include "glog/logging.h"
 
-namespace npc {
+namespace apt {
 
 void MixCacheGraphs(
     IdType num_cached_nodes, torch::Tensor cached_node_idx,
     torch::Tensor cached_indptr, torch::Tensor cached_indices,
     torch::Tensor global_indptr, torch::Tensor global_indices) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   auto local_rank = state->local_rank;
 
   CHECK(num_cached_nodes == cached_node_idx.numel());
@@ -47,4 +47,4 @@ void MixCacheGraphs(
           torch::TensorOptions().dtype(torch::kInt64))
           .to(torch::kCUDA, local_rank);
 }
-}  // namespace npc
+}  // namespace apt

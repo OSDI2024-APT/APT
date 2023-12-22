@@ -9,7 +9,7 @@
 #include "./utils.h"
 #include "glog/logging.h"
 
-namespace npc {
+namespace apt {
 
 void CacheFeatsShared(
     IdType num_total_nodes, torch::Tensor localnode_feats,
@@ -21,7 +21,7 @@ void CacheFeatsShared(
   IdType feat_dim = localnode_feat_sizes[1];
   IdType num_cached_nodes = cached_feat_sizes[0];
   IdType rank_feat_dim = cached_feat_sizes[1];
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
 
   int local_rank = state->rank;
   LOG(INFO) << "Cache #" << num_cached_nodes << "\t of uva"
@@ -60,4 +60,4 @@ void CacheFeatsShared(
           .to(torch::kCUDA, local_rank);
 }
 
-}  // namespace npc
+}  // namespace apt

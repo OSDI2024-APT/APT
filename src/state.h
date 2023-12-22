@@ -1,11 +1,11 @@
-#ifndef NPC_STATE_H_
-#define NPC_STATE_H_
+#ifndef APT_STATE_H_
+#define APT_STATE_H_
 
 #include <nccl.h>
 
 #include "./utils.h"
 
-namespace npc {
+namespace apt {
 
 struct FeatStorage {
   torch::Tensor labels;
@@ -29,7 +29,7 @@ struct Profiler {
   IdType feat_num_cached_nodes, node_num_total_nodes, feat_cache_bytes;
 };
 
-struct NPCState {
+struct APTState {
   // nccl communication
   int rank, local_rank, world_size, node_size;
   ncclComm_t nccl_comm;
@@ -54,14 +54,14 @@ struct NPCState {
   torch::Tensor remote_worker_map;
   std::vector<IdType> vec_remote_worker_id, vec_remote_worker_map;
 
-  static NPCState *Global() {
-    static NPCState state;
+  static APTState *Global() {
+    static APTState state;
     return &state;
   }
   // for logs
   std::string tag;
 };
 
-}  // namespace npc
+}  // namespace apt
 
 #endif

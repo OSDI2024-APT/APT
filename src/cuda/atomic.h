@@ -1,9 +1,9 @@
-#ifndef NPC_CUDA_ATOMIC_H_
-#define NPC_CUDA_ATOMIC_H_
+#ifndef APT_CUDA_ATOMIC_H_
+#define APT_CUDA_ATOMIC_H_
 
 #include <cuda.h>
 
-namespace npc {
+namespace apt {
 inline __device__ int64_t AtomicMax(int64_t *const address, const int64_t val) {
   // match the type of "::atomicCAS", so ignore lint warning
   using Type = long long int;  // NOLINT
@@ -163,5 +163,5 @@ inline __device__ int64_t AtomicSub(int64_t *const address, const int64_t val) {
 inline __device__ float AtomicSub(float *const address, const float val) {
   return AtomicAdd(address, (-val));
 }
-}  // namespace npc
+}  // namespace apt
 #endif

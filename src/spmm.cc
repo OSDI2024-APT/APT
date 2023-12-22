@@ -3,9 +3,9 @@
 #include <ATen/Functions.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include "./cuda/npc_kernel.h"
+#include "./cuda/apt_kernel.h"
 
-namespace npc {
+namespace apt {
 torch::Tensor CopyUSum(
     torch::Tensor coo_row, torch::Tensor coo_col, torch::Tensor input,
     torch::Tensor coo_offset, torch::Tensor input_offset,
@@ -40,4 +40,4 @@ torch::Tensor UMulESum(
 
   return output;
 }
-}  // namespace npc
+}  // namespace apt

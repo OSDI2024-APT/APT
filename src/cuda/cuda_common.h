@@ -1,5 +1,5 @@
-#ifndef NPC_CUDA_CUDA_COMMON_H_
-#define NPC_CUDA_CUDA_COMMON_H_
+#ifndef APT_CUDA_CUDA_COMMON_H_
+#define APT_CUDA_CUDA_COMMON_H_
 
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <cuda.h>

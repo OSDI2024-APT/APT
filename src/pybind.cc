@@ -13,9 +13,9 @@
 #include "./spmm.h"
 #include "./utils.h"
 
-namespace npc {
+namespace apt {
 
-TORCH_LIBRARY(npc, m) {
+TORCH_LIBRARY(apt, m) {
   m.def("nccl_get_unique_id", &NCCLGetUniqueId)
       .def("init", &Initialize)
       .def("alltoall", &AlltoAll)
@@ -47,4 +47,4 @@ TORCH_LIBRARY(npc, m) {
       .def("sddmm_u_mul_v", &UMulV);
 }
 
-}  // namespace npc
+}  // namespace apt

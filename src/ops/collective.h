@@ -1,5 +1,5 @@
-#ifndef NPC_OPS_COLLECTIVE_H_
-#define NPC_OPS_COLLECTIVE_H_
+#ifndef APT_OPS_COLLECTIVE_H_
+#define APT_OPS_COLLECTIVE_H_
 
 #include <torch/custom_class.h>
 #include <torch/script.h>
@@ -8,7 +8,7 @@
 
 #include "../utils.h"
 
-namespace npc {
+namespace apt {
 
 IdType SPSampleAlltoAllWithDst(
     torch::Tensor input, torch::Tensor output, torch::Tensor send_sizes,
@@ -48,6 +48,6 @@ void CrossMachineAlltoAll(
     torch::Tensor input, torch::Tensor output, torch::Tensor send_sizes,
     torch::Tensor recv_size, IdType expand = 1, IdType comm_type = 0);
 
-}  // namespace npc
+}  // namespace apt
 
 #endif

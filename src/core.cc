@@ -11,7 +11,7 @@
 // #include "./utils.h"
 #include "glog/logging.h"
 
-namespace npc {
+namespace apt {
 
 std::string NCCLIdToString(ncclUniqueId id) {
   return std::string(id.internal, id.internal + NCCL_UNIQUE_ID_BYTES);
@@ -54,7 +54,7 @@ ncclComm_t BuildNCCLComm(
 void Initialize(
     IdType rank, IdType local_rank, IdType world_size,
     torch::Tensor nccl_id_tensor_list, IdType node_size) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   state->rank = rank;
   state->local_rank = local_rank;
   state->world_size = world_size;
@@ -100,7 +100,7 @@ void Initialize(
 }
 
 void RegisterMinVids(torch::Tensor shuffle_min_vids, IdType shuffle_id_offset) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   state->shuffle_min_vids = shuffle_min_vids;
   state->shuffle_id_offset = shuffle_id_offset;
   LOG(INFO) << "Register shuffle_min_vids: " << TensorToString(shuffle_min_vids)
@@ -109,7 +109,7 @@ void RegisterMinVids(torch::Tensor shuffle_min_vids, IdType shuffle_id_offset) {
 
 void RegisterMultiMachinesScheme(
     torch::Tensor remote_worker_map, torch::Tensor remote_worker_id) {
-  auto* state = NPCState::Global();
+  auto* state = APTState::Global();
   state->cross_machine_flag = true;
   state->remote_worker_map = remote_worker_map;
   std::vector<IdType> tmp_vec1(
@@ -130,4 +130,4 @@ void RegisterMultiMachinesScheme(
             << VecToString(state->vec_remote_worker_map);
 }
 
-}  // namespace npc
+}  // namespace apt

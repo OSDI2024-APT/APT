@@ -1,12 +1,12 @@
-#ifndef NPC_KERNEL_H_
-#define NPC_KERNEL_H_
+#ifndef APT_KERNEL_H_
+#define APT_KERNEL_H_
 
 #include <string>
 
 #include "../utils.h"
 #include "glog/logging.h"
 
-namespace npc {
+namespace apt {
 const int WARP_SIZE = 32;
 const int BLOCK_SIZE = 8 * WARP_SIZE;
 const int BLOCK_NUM = 2;
@@ -80,6 +80,6 @@ void UMulVCUDA(
     torch::Tensor coo_row, torch::Tensor coo_col, torch::Tensor lhs,
     torch::Tensor rhs, torch::Tensor output, torch::Tensor coo_offset,
     torch::Tensor lhs_offset, torch::Tensor rhs_offset);
-}  // namespace npc
+}  // namespace apt
 
 #endif
